@@ -22,13 +22,19 @@ def setup_logger(name: str, log_file: str, level=logging.INFO) -> Logger:
     Функкция принимает имя функции, файл-логер и записывает логи для каждой функции в отдельный файл с именем этой
     функции
     """
-    handler = logging.FileHandler(log_file)
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    logs_dir = os.path.join(base_dir, 'logs')
+    log_file = os.path.join(logs_dir, log_file)
+
+    handler = logging.FileHandler(log_file, encoding='utf-8')
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s: %(message)s')
     handler.setFormatter(formatter)
 
     logger = logging.getLogger(name)
     logger.setLevel(level)
-    logger.addHandler(handler)
+
+    if not logger.handlers:
+        logger.addHandler(handler)
 
     return logger
 
@@ -90,17 +96,34 @@ def process_data(date_operation: datetime) -> pd.DataFrame:
     date_start = date_operation.replace(day=1, hour=0, minute=0, second=0)
     # Конец диапозна
     date_end = date_operation
+    try:
+        logger_process_data.info('Чтение файла')
+        data = read_excel('operations.xlsx')
+        # Проверка на пустой файл
+        if data.empty:
+            logger_process_data.warning('Файл пуст')
+            return pd.DataFrame()
+        logger_process_data.info('Приведение столбца "Дата операции" к формату даты')
+        data['Дата операции'] = pd.to_datetime(data['Дата операции'], format=DATETIME_FORMAT_DMY_HMS, errors='raise')
 
-    data = read_excel('operations.xlsx')
-    logger_process_data.info('Приведение столбца "Дата операции" к формату даты')
-    data['Дата операции'] = pd.to_datetime(data['Дата операции'], format=DATETIME_FORMAT_DMY_HMS)
+        result_data =  data.query('@date_start <= `Дата операции` <= @date_end')
 
-    result_data =  data.query('@date_start <= `Дата операции` <= @date_end')
+        result_data.sort_values('Дата операции', inplace=True)
+        logger_process_data.info(f'Отфильтровано строк {len(result_data)}')
+        return result_data
 
-    result_data.sort_values('Дата операции', inplace=True)
-    logger_process_data.info(f'Вывод банковских операций с 1 дня месяца по {date_operation}')
-    return result_data
-
+    except KeyError:
+        # Колонка не найдена
+        logger_process_data.error(f'Ошибка: отсутствует колонка "Дата операции"', exc_info=True)
+        return pd.DataFrame()
+    except ValueError:
+        # Неверный формат дат
+        logger_process_data.error(f'Ошибка формата даты', exc_info=True)
+        return pd.DataFrame()
+    except Exception as e:
+        # Иные ошибки
+        logger_process_data.error(f'Неизвестная ошибка: {e}', exc_info=True)
+        return pd.DataFrame()
 
 def get_detailed_info(result_data: pd.DataFrame) -> str:
     """
@@ -109,36 +132,56 @@ def get_detailed_info(result_data: pd.DataFrame) -> str:
     - общая сумма расходов
     - кешбэк (1 рубль на каждые 100 рублей)
     """
-    logger_get_detailed_info.info('Из таблицы оставялем два столбца: "Номер карты" и "Сумма операции с округлением"')
-    # выбираем колонки "Номер карты" и "Сумма операции с округлением"
-    df = result_data[['Номер карты', 'Сумма операции с округлением']]
-    # в колонке "Номер карты" убираем знак "*"
-    df['Номер карты'] = df['Номер карты'].str[1:]
+    try:
+        logger_get_detailed_info.info('Из таблицы оставялем два столбца: "Номер карты" и "Сумма операции с округлением"')
+        # выбираем колонки "Номер карты" и "Сумма операции с округлением"
+        if not isinstance(result_data, pd.DataFrame):
+            raise TypeError('Ожидается объект pandas.DataFrame')
 
-    # группируем и суммируем
-    df_new = df.groupby('Номер карты', as_index=False)['Сумма операции с округлением'].sum()
-    # добавление нового столбца "cashback" и
-    df_new['cashback'] = (df_new['Сумма операции с округлением'] / 100).round(2)
-    logger_get_detailed_info.info(f'Переводим DataFrame в словарь')
-    result_dict = df_new.to_dict(orient='records')
+        if result_data.empty:
+            logger_get_detailed_info.warning('Передан пустой Dataframe')
+            return json.dumps({'cards': []}, indent=4)
 
-    card_list = []
-    logger_get_detailed_info.info(f'Формируем новый список словарей {card_list}')
-    for card in result_dict:
-        card_list.append({
-            'last_digits': card['Номер карты'],
-            'total_spent': card['Сумма операции с округлением'],
-            'cashback': card['cashback']
-        })
-    card_list = {'cards': card_list}
+        df = result_data[['Номер карты', 'Сумма операции с округлением']]
+        # в колонке "Номер карты" убираем знак "*"
+        df['Номер карты'] = df['Номер карты'].str.replace(r'^\*', '', regex=True)
 
-    return json.dumps(card_list, indent=4)
+        # группируем и суммируем
+        df_new = df.groupby('Номер карты', as_index=False)['Сумма операции с округлением'].sum()
+        # добавление нового столбца "cashback"
+        df_new['cashback'] = (df_new['Сумма операции с округлением'] / 100).round(2)
+        logger_get_detailed_info.info(f'Переводим DataFrame в словарь')
+        result_dict = df_new.to_dict(orient='records')
 
+        card_list = []
+        logger_get_detailed_info.info(f'Формируем новый список словарей {card_list}')
+        for card in result_dict:
+            last_digits = card.get('Номер карты')
+            amount = card.get('Сумма операции с округлением')
+            cb = card.get('cashback')
+            card_list.append({
+                'last_digits': last_digits,
+                'total_spent': round(float(amount), 2),
+                'cashback': round(float(cb), 2)
+            })
+        card_list_res = {'cards': card_list}
+        logger_get_detailed_info.info(f'успешно сформировано {len(card_list)} записей')
+        return json.dumps(card_list_res, indent=4)
+
+    except KeyError:
+        logger_get_detailed_info.error('Нет нужных колонок', exc_info=True)
+        return json.dumps({'cards': []})
+    except TypeError:
+        logger_get_detailed_info.error('Ошибка типа данных', exc_info=True)
+        return json.dumps({'cards': []})
+    except Exception as e:
+        logger_get_detailed_info.error(f'Неизвестная шибка: {e}', exc_info=True)
+        return json.dumps({'cards': []})
 
 def get_top_five_transactions(result_data: pd.DataFrame) -> str:
     """
     Принимает DataFrame с трансакциями, возвращает топ-5 транзакций по сумме платежей ввиде:
-    "top_transactions": [
+    "top_transactions":
     {
       "date": "21.12.2021",
       "amount": 1198.23,
@@ -146,28 +189,56 @@ def get_top_five_transactions(result_data: pd.DataFrame) -> str:
       "description": "Перевод Кредитная карта. ТП 10.2 RUR"
     }
     """
-    logger_get_top_five_transactions.info('Делаем выборку столбцов: "Дата платежа",'
-                                          '"Сумма операции с округлением", "Категория", "Описание"')
-    df = result_data[['Дата платежа', 'Сумма операции с округлением', 'Категория', 'Описание']]
-    # группируем
-    trans_group = df.sort_values('Сумма операции с округлением', ascending=False).head(5)
-    logger_get_top_five_transactions.info(f'Переводим DataFrame в словарь')
-    trans_group_dict = trans_group.to_dict(orient='records')
+    try:
+        logger_get_top_five_transactions.info('Делаем выборку столбцов: "Дата платежа",'
+                                              '"Сумма операции с округлением", "Категория", "Описание"')
+        df = result_data[['Дата платежа', 'Сумма операции с округлением', 'Категория', 'Описание']]
+        # группируем
+        trans_group = df.sort_values('Сумма операции с округлением', ascending=False).head(5)
+        logger_get_top_five_transactions.info(f'Переводим DataFrame в словарь')
 
-    five_trans = []
-    logger_get_top_five_transactions.info(f'Формируем новый списк словарей {five_trans}')
-    for trans in trans_group_dict:
-        five_trans.append({
-            'date': trans['Дата платежа'],
-            'amount': round(trans['Сумма операции с округлением'], 2),
-            'category': trans['Категория'],
-            'description': trans['Описание']
-        })
+        trans_group_dict = trans_group.to_dict(orient='records')
 
-    five_trans = {'top_transactions': five_trans}
+        five_trans = []
+        logger_get_top_five_transactions.info(f'Получаем значения из выбранных столбцов и'
+                                              f'формируем новый списк словарей {five_trans}')
+        for trans in trans_group_dict:
+            date = trans.get('Дата платежа')
+            amount = trans.get('Сумма операции с округлением')
+            category = trans.get('Категория')
+            description = trans.get('Описание')
 
-    return json.dumps(five_trans, ensure_ascii=False, indent=4)
+            # Проверка на пустую строку в "Дата платежа"
+            if pd.notna(date):
+                date_str = str(date).strip()
+            else:
+                date_str = ''
 
+            # Округление суммы, если есть Nan или пустая строка
+            if pd.notna(amount):
+                amount_val = round(float(amount), 2)
+            else:
+                amount_val = 0.0
+
+            five_trans.append({
+                'date': date_str,
+                'amount': amount_val,
+                'category': category,
+                'description': description
+            })
+        five_trans_res = {'top_transactions': five_trans}
+        logger_get_top_five_transactions.info(f'Сформировано {len(five_trans)} записей')
+        return json.dumps(five_trans_res, ensure_ascii=False, indent=4)
+
+    except KeyError:
+        logger_get_top_five_transactions.error('Нет нужных колонок', exc_info=True)
+        return json.dumps({'top_transactions': []})
+    except TypeError:
+        logger_get_top_five_transactions.error('Ошибка типа данных', exc_info=True)
+        return json.dumps({'top_transactions': []})
+    except Exception as e:
+        logger_get_top_five_transactions.error(f'Неизвестная ошибка: {e}', exc_info=True)
+        return json.dumps({'top_transactions': []})
 
 def get_currency_rates(currency_code: List) -> str:
     """Принимает список валют, возвращает курс валют в json"""
@@ -194,7 +265,7 @@ def get_currency_rates(currency_code: List) -> str:
             continue
         result.append({
             'currency': code_upper,
-            'rate': float(round(info['Value'], 2))
+            'rate': round(float(info['Value']), 2)
         })
     result = {'currency_rates': result}
 
