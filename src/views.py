@@ -143,7 +143,8 @@ def get_detailed_info(result_data: pd.DataFrame) -> str:
         )
         # выбираем колонки "Номер карты" и "Сумма операции с округлением"
         if not isinstance(result_data, pd.DataFrame):
-            raise TypeError("Ожидается объект pandas.DataFrame")
+            logger_get_detailed_info.error("Ожидается объект pandas.DataFrame")
+            return json.dumps({"cards": []}, indent=4)
 
         if result_data.empty:
             logger_get_detailed_info.warning("Передан пустой Dataframe")
