@@ -52,7 +52,9 @@ logger_load_user_settings = setup_logger("load_user_settings", "load_user_settin
 
 
 def read_excel(data_xlsx: str) -> DataFrame:
-    """Принимает путь к файлу Excel и выдает dataframe."""
+    """
+    Принимает путь к файлу Excel и выдает dataframe.
+    """
     # папка где лежит проект
     base_dir = os.path.dirname(__file__)
 
@@ -188,14 +190,7 @@ def get_detailed_info(result_data: pd.DataFrame) -> str:
 
 def get_top_five_transactions(result_data: pd.DataFrame) -> str:
     """
-    Принимает DataFrame с трансакциями, возвращает топ-5 транзакций по сумме платежей ввиде:
-    "top_transactions":
-    {
-      "date": "21.12.2021",
-      "amount": 1198.23,
-      "category": "Переводы",
-      "description": "Перевод Кредитная карта. ТП 10.2 RUR"
-    }
+    Принимает DataFrame с трансакциями, возвращает топ-5 транзакций по сумме платежей ввиде JSON-cтроки.
     """
     try:
         logger_get_top_five_transactions.info(

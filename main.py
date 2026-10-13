@@ -1,14 +1,16 @@
 import json
+
 from datetime import datetime
-
-
 from src.views import (greeting, get_detailed_info, get_top_five_transactions, get_currency_rates,
                        get_stock_prices, process_data, load_user_settings)
 
 
 def main(date_str: str) -> str:
-    """Функция принимает строку с датой и временем в формате YYYY-MM-DD HH:MM:SS и возвращает JSON-ответ со следующими
-    данными: последние 4 цифры карты, общая сумма расходов, кэшбек (1рубль на каждые 100рублей)"""
+    """
+    Функция принимает строку с датой и временем в формате YYYY-MM-DD HH:MM:SS и возвращает JSON-ответ со следующими
+    данными: последние 4 цифры карты, общая сумма расходов, кэшбек (1рубль на каждые 100рублей), топ-5 транзакций по
+    сумме платежа, курс валют и стоимость акций.
+    """
     # Получаем дату в ожидаемом формате
     try:
         date_operation = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
@@ -61,5 +63,3 @@ def main(date_str: str) -> str:
 if __name__ == '__main__':
     input_date = '2021-10-15 14:30:00'
     print(main(input_date))
-
-
