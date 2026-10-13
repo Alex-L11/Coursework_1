@@ -16,7 +16,8 @@ log_file = os.path.join(log_dir, 'services.log')
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s: %(message)s',
                     filename=log_file,
-                    filemode='w')
+                    filemode='w',
+                    encoding='utf-8')
 
 cat_cash_logger = logging.getLogger('category_cashback')
 
@@ -55,7 +56,7 @@ def category_cashback(data: str, year: int, month: int) -> str:
                 try:
                     dt = datetime.strptime(str(date).strip(), '%d.%m.%Y')
                 except ValueError:
-                    cat_cash_logger.error('Значения даты не подхордят, пропускаем эти строки')
+                    cat_cash_logger.error('Значения даты не подходят, пропускаем эти строки')
                     continue
 
             if dt is None:
@@ -76,6 +77,7 @@ def category_cashback(data: str, year: int, month: int) -> str:
         print(f'Ошибка: {ex}')
 
     final_result = {}
+    cat_cash_logger.info('Формаируем новый словарь для вывод кэшбека')
     for cat, total in result_dict.items():
         total_round = round(total)
         cashback = total_round // 100
@@ -83,8 +85,5 @@ def category_cashback(data: str, year: int, month: int) -> str:
 
     sorted_cashback = sorted(final_result.items(), key=lambda x: x[1], reverse=True)
     sorted_dict = dict(sorted_cashback)
+    cat_cash_logger.info('Возвращаем готовый словарь в json-строке')
     return json.dumps(sorted_dict, ensure_ascii=False, indent=4)
-
-
-if __name__ == '__main__':
-    print(category_cashback('operations.xlsx', 2021, 5))
