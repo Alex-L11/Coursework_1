@@ -1,7 +1,9 @@
+import functools
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Optional
 
 import pandas as pd
 
@@ -18,6 +20,32 @@ logging.basicConfig(level=logging.INFO,
 spend_by_cat_logger = logging.getLogger('spending_by_category')
 
 
+def spend_decorator(file_name: Optional[str] = None) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    # Формируем имя файла, если пользователь не передал свое
+    defailt_name = f'spending_report_{datetime.now().strftime("%d.%m.%Y_%H-%M-%S")}.csv'
+
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            result = func(*args, **kwargs)
+            # Проверяем передано ли имя файла или нет
+            file_name_default = file_name if file_name is not None else defailt_name
+
+            # Сохраняем результат
+            if isinstance(result, pd.DataFrame):
+                spend_by_cat_logger.info(f'Отчет сохранен в СSV: {file_name_default}')
+                result.to_csv(file_name_default, index=False, encoding='utf-8')
+            else:
+                raise TypeError('Формат результата функции не верный')
+
+            return result
+
+        return wrapper
+
+    return decorator
+
+
+@spend_decorator()
 def spending_by_category(transactions: pd.DataFrame, category: str, date: Optional[str] = None) -> pd.DataFrame:
     """ Принимает датафрейм с транзакциями, название категории и опциональную дату, возвращает результат в файл. """
     if not isinstance(transactions, pd.DataFrame):
