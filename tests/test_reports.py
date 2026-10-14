@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from src.reports import spending_by_category
+from src.reports import spending_by_category, spend_decorator
 
 
 def test_spending_by_category_wrong() -> None:
@@ -32,4 +32,21 @@ def test_no_transaction_for_category(spending_by_category_data) -> None:
     expected_cols = ["Дата платежа", "Категория", "Сумма операции с округлением"]
     assert list(result.columns) == expected_cols
 
+
+@pytest.mark.parametrize('category', ['Каршеринг'])
+def test_spend_decorator_file_default(spending_by_category_data, category, tmp_path):
+    file_name = 'spend_report_test.csv'
+    test_path = tmp_path / file_name
+
+    @spend_decorator(str(test_path))
+    def decorator_func(trans, cat):
+        return trans[trans['Категория'] == cat]
+
+    result = decorator_func(spending_by_category_data, category)
+
+    assert test_path.exists(), f'Файл не создан: {test_path}'
+    assert test_path.stat().st_size > 0, 'Файл создан, но пустой'
+
+    ex_df = spending_by_category_data[spending_by_category_data['Категория'] == category]
+    pd.testing.assert_frame_equal(result.reset_index(drop=True), ex_df.reset_index(drop=True))
 
